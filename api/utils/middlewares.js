@@ -20,12 +20,41 @@ const authenticate = (req, res, next) => {
   }
 };
 
+const sendUserError = (err, res) => {
+  res.status(STATUS_USER_ERROR);
+  if (err && err.message) {
+    res.json({ message: err.message, stack: err.stack });
+  } else {
+    res.json({ error: err });
+  }
+};
+
 const encryptUserPW = (req, res, next) => {
   const { username, password } = req.body;
   // https://github.com/kelektiv/node.bcrypt.js#usage
   // TODO: Fill this middleware in with the Proper password encrypting, bcrypt.hash()
-  // Once the password is encrypted using bcrypt you'll need to set a user obj on req.user with the encrypted PW
-  // Once the user is set, call next and head back into the userController to save it to the DB
+  // Once the password is encrypted using bcrypt, you'll need to save the user the DB.
+  // Once the user is set, take the savedUser and set the returned document from Mongo on req.user
+  // call next to head back into the route handler for encryptUserPW
+  // Encrypt the PW first and set the user object on `req.user` then call `next` 
+  // and handle saving that user in the `userController`
+  if (!username) {
+    sendUserError('Gimme a username', res);
+    return;
+  }
+  if (!password) {
+    sendUserError('Gimme a password', res);
+    return;
+  }
+  bcrypt
+    .hash(password, SaltRounds)
+    .then((pw) => {
+      req.password = pw;
+      next();
+    })
+    .catch((err) => {
+      throw new Error(err);
+    });
 };
 
 const compareUserPW = (req, res, next) => {
@@ -35,6 +64,20 @@ const compareUserPW = (req, res, next) => {
   // You'll need to find the user in your DB
   // Once you have the user, you'll need to pass the encrypted pw and the plaintext pw to the compare function
   // If the passwords match set the username on `req` ==> req.username = user.username; and call next();
+
+  User.findOne({username})
+    .then((user) => {
+      bcrypt
+        .compare(password, user.password)
+        .then((compareOutput) => {
+          if(!compareOutput) throw new Error;
+          req.username = user.username;
+          next();
+        })
+        .catch(err => {
+          throw new Error(err);
+        });
+    });
 };
 
 module.exports = {
